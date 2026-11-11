@@ -1,0 +1,23 @@
+# Keil build output
+NUC140_Cabinet/Keil/obj/
+NUC140_Cabinet/Keil/lst/
+NUC140_Cabinet/Keil/*.uvguix.*
+NUC140_Cabinet/Keil/build.log
+NUC140_Cabinet/Keil/JLinkLog.txt
+
+# Mbed build output (if built inside this folder)
+LPC1768_Supervisor/BUILD/
+LPC1768_Supervisor/mbed-os/
+
+# Pi gateway runtime data (made on the Pi, holds photos / passwords)
+Pi_Gateway/config.json
+Pi_Gateway/medvault.db
+Pi_Gateway/photos/
+
+# Local backups
+Proposal/*_backup_*.docx
+~$*.docx
+
+__pycache__/
+*.pyc
+.claude/

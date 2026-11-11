@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1220">
+<title>MedVault Login</title>
+<link rel="icon" href="/icon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="login">
+  <form method="post" action="/login" class="card">
+    <div class="brand"><img src="/icon.svg" alt=""><div>MedVault<small>Pharmacy &amp; vaccine cabinet</small></div></div>
+    <label class="sub" for="pw">Staff password</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
+    <button class="primary" type="submit">Sign in</button>
+    <div id="bad" class="sub" style="color:#fca5a5;display:none">Wrong password.</div>
+  </form>
+</div>
+<script>if (location.search.includes('bad')) document.getElementById('bad').style.display = 'block';</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+[Unit]
+Description=MedVault hospital gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/Pi_Gateway
+ExecStart=/usr/bin/python3 /home/pi/Pi_Gateway/gateway.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

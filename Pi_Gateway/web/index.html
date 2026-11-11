@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>MedVault</title>
+<link rel="icon" href="/icon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><img src="/icon.svg" alt=""><div>MedVault<small id="cabname">Cabinet</small></div></div>
+    <span id="online" class="pill">connecting...</span>
+  </div>
+  <nav>
+    <button data-tab="live" class="on">Live</button>
+    <button data-tab="log">Audit log</button>
+    <button data-tab="alarms">Alarms <span id="alarmBadge" class="badge" hidden>0</span></button>
+    <button data-tab="control">Control</button>
+    <button data-tab="security">Security</button>
+  </nav>
+</header>
+
+<main>
+  <div id="alarmStrip" class="alarm-strip"></div>
+  <div id="request" class="request"><span class="dot"></span><div id="requestText"></div></div>
+
+  <!-- LIVE -->
+  <section id="live" class="on">
+    <div class="grid">
+      <div class="card"><h3>Cabinet</h3><div id="lockState" class="big state">-</div><div id="cabState" class="sub">-</div></div>
+      <div class="card"><h3>Door</h3><div id="doorState" class="big state">-</div><div id="ldr" class="sub">-</div></div>
+      <div class="card"><h3>Temperature</h3><div id="temp" class="big state">-</div><div id="tempSub" class="sub">-</div></div>
+      <div class="card"><h3>Backup sensor (LM75B)</h3><div id="lm75" class="big">-</div><div class="sub">on the supervisor unit</div></div>
+      <div class="card wide">
+        <h3>Temperature, last 30 minutes</h3>
+        <canvas id="chart"></canvas>
+        <div class="legend"><span><i style="background:#2dd4bf"></i>Cabinet (thermistor)</span><span><i style="background:#a78bfa"></i>Backup (LM75B)</span><span><i style="background:#ef4444"></i>Alarm limit</span></div>
+      </div>
+      <div class="card wide"><h3>Latest activity</h3><div id="feed" class="feed"></div></div>
+    </div>
+  </section>
+
+  <!-- AUDIT LOG -->
+  <section id="log">
+    <div class="filters">
+      <select id="sevFilter"><option value="">All events</option><option value="alarm">Alarms</option><option value="warn">Warnings</option><option value="info">Info</option></select>
+      <input id="search" placeholder="Search staff / event" size="18">
+      <a href="/api/export.csv"><button>Export CSV</button></a>
+    </div>
+    <div class="card scroll">
+      <table class="tbl"><thead><tr><th>Time</th><th>Event</th><th>Staff</th><th class="hide-sm">Drawer</th><th>Detail</th><th>Photo</th></tr></thead>
+      <tbody id="logBody"></tbody></table>
+    </div>
+  </section>
+
+  <!-- ALARMS -->
+  <section id="alarms">
+    <h2 style="margin-top:4px">Active now</h2>
+    <div id="activeAlarms" class="grid"></div>
+    <h2>Alarm history</h2>
+    <div class="card scroll"><table class="tbl"><thead><tr><th>Time</th><th>Alarm</th><th>Detail</th><th>Photo</th></tr></thead><tbody id="alarmBody"></tbody></table></div>
+  </section>
+
+  <!-- CONTROL -->
+  <section id="control">
+    <div class="grid">
+      <div class="card ctl">
+        <h3>Emergency</h3>
+        <button class="danger lockbtn" id="btnLockdown">LOCKDOWN CABINET</button>
+        <div class="sub">Locks the servo at once. Only an admin PIN on the cabinet or "Clear" here opens it again.</div>
+      </div>
+      <div class="card ctl">
+        <h3>Clear alarms</h3>
+        <button class="primary" id="btnClear">Clear lockdown / alarms</button>
+        <div class="sub">Sent encrypted to the cabinet through the supervisor unit.</div>
+      </div>
+      <div class="card ctl">
+        <h3>Temperature alarm limit</h3>
+        <div class="big" id="limitShow">-</div>
+        <input type="range" class="range" id="limit" min="2" max="40" step="0.5" value="8">
+        <button id="btnLimit">Set limit</button>
+        <div class="sub" id="limitSrc">Vaccines: 8.0 &deg;C. Turning VR1 on the cabinet takes over again.</div>
+      </div>
+      <div class="card ctl" id="simCard" hidden>
+        <h3>Simulation (no boards)</h3>
+        <div class="filters">
+          <button data-sim="access">Nurse access</button>
+          <button data-sim="wrongpin">3 wrong PINs</button>
+          <button data-sim="forced">Door forced</button>
+          <button data-sim="moved">Cabinet moved</button>
+          <button data-sim="heat">Warm sensor</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECURITY -->
+  <section id="security">
+    <div class="grid">
+      <div class="card"><h3>Attacks blocked</h3><div id="attacks" class="big state bad">0</div><div class="sub">replayed / forged messages rejected</div></div>
+      <div class="card"><h3>Rolling counter</h3><div id="counter" class="big">0</div><div class="sub">each approval / command must be higher</div></div>
+      <div class="card"><h3>Encryption</h3><div class="big" style="font-size:24px">XTEA-128</div><div class="sub">challenge-response, new nonce per request</div></div>
+      <div class="card wide ctl">
+        <h3>Security test</h3>
+        <div class="sub">Plays the hacker: takes the last real approval message that was sent to the cabinet and sends it again. The cabinet must reject it.</div>
+        <div class="filters">
+          <button class="danger" id="btnReplay">Run replay attack</button>
+          <button id="btnTamper">Send corrupted approval</button>
+        </div>
+        <div id="replayOut" class="mono sub"></div>
+      </div>
+      <div class="card wide scroll">
+        <h3>Raw frames on the wire</h3>
+        <table class="tbl"><thead><tr><th>Time</th><th>Direction</th><th>Bytes (hex)</th></tr></thead><tbody id="rawBody"></tbody></table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="modal"><img id="modalImg" alt="event photo"></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let S = {}, lastEventId = null, events = [];
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (r.status === 401) { location.href = '/login.html'; throw new Error('login'); }
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+
+function toast(text, alarm) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (alarm ? ' alarm' : '');
+  t.innerHTML = text;
+  $('toasts').appendChild(t);
+  setTimeout(() => t.remove(), 6000);
+}
+
+// tabs
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  try { localStorage.setItem('mv_tab', b.dataset.tab); } catch (e) {}
+  if (b.dataset.tab === 'live') drawChart();
+  if (b.dataset.tab === 'security') loadRaw();
+});
+try { const t = localStorage.getItem('mv_tab'); if (t) document.querySelector(`nav button[data-tab="${t}"]`)?.click(); } catch (e) {}
+
+function photoCell(p) { return p ? `<img class="thumb" src="/photos/${esc(p)}" data-photo="${esc(p)}" alt="">` : '<span class="sub">-</span>'; }
+document.addEventListener('click', e => {
+  const p = e.target.dataset?.photo;
+  if (p) { $('modalImg').src = '/photos/' + p; $('modal').classList.add('on'); }
+});
+$('modal').onclick = () => $('modal').classList.remove('on');
+
+function fmtT(v) { return v === null || v === undefined ? '--.-' : v.toFixed(1); }
+
+function renderState() {
+  $('cabname').textContent = S.cabinet_name || '';
+  const on = S.online;
+  $('online').textContent = on ? 'cabinet online' : 'no data from cabinet';
+  $('online').className = 'pill ' + (on ? 'ok' : 'bad');
+
+  const lockdown = S.state === 'LOCKDOWN';
+  $('lockState').textContent = lockdown ? 'LOCKDOWN' : S.unlocked ? 'UNLOCKED' : 'LOCKED';
+  $('lockState').className = 'big state ' + (lockdown ? 'bad' : S.unlocked ? 'info' : 'ok');
+  $('cabState').textContent = 'mode: ' + (S.state || '-');
+  $('doorState').textContent = S.door_open ? 'OPEN' : 'CLOSED';
+  $('doorState').className = 'big state ' + (S.door_open ? (S.unlocked ? 'info' : 'bad') : 'ok');
+  $('ldr').textContent = 'light inside ' + (S.ldr ?? 0) + '%';
+  const cold = (S.alarms & 1) !== 0;
+  $('temp').textContent = fmtT(S.temp) + ' °C';
+  $('temp').className = 'big state ' + (S.temp === null ? 'warn' : cold ? 'bad' : 'ok');
+  $('tempSub').textContent = S.temp === null ? 'sensor not connected' : 'limit ' + fmtT(S.limit) + ' °C' + (S.remote_limit ? ' (set from web)' : ' (VR1 knob)');
+  $('lm75').textContent = fmtT(S.lm75) + ' °C';
+  $('limitShow').textContent = fmtT(S.limit) + ' °C';
+  $('attacks').textContent = S.attacks_blocked ?? 0;
+  $('counter').textContent = S.counter ?? 0;
+  $('simCard').hidden = !S.sim;
+
+  const act = S.active_alarms || [];
+  $('alarmStrip').classList.toggle('on', act.length > 0);
+  $('alarmStrip').innerHTML = act.map(a => '⚠ ' + esc(a.text)).join('<br>');
+  $('alarmBadge').hidden = act.length === 0;
+  $('alarmBadge').textContent = act.length;
+  $('activeAlarms').innerHTML = act.length ? act.map(a => `<div class="card alarm-card"><h3>${esc(a.code)}</h3><div style="font-weight:600">${esc(a.text)}</div></div>`).join('')
+    : '<div class="card"><div class="state ok" style="font-weight:600">No active alarms</div><div class="sub">All sensors normal.</div></div>';
+
+  const rq = S.request;
+  $('request').classList.toggle('on', !!rq && S.state === 'WAIT');
+  if (rq) $('requestText').innerHTML = `<b>${esc(rq.name)}</b> (${esc(rq.staff)}) asks to open <b>drawer ${esc(rq.drawer)}</b>. Waiting for supervisor approval on the LPC1768...`;
+}
+
+function renderEvents() {
+  const sev = $('sevFilter').value, q = $('search').value.toLowerCase();
+  const rows = events.filter(e => (!sev || e.severity === sev) && (!q || (e.name + ' ' + e.staff_name + ' ' + e.detail).toLowerCase().includes(q)));
+  $('logBody').innerHTML = rows.map(e => `<tr class="${esc(e.severity)}"><td class="sub">${esc(e.ts.slice(5))}</td><td><span class="tag ${esc(e.severity)}">${esc(e.name)}</span></td>
+    <td>${esc(e.staff_name)}</td><td class="hide-sm">${esc(e.drawer || '-')}</td><td>${esc(e.detail)}</td><td>${photoCell(e.photo)}</td></tr>`).join('');
+  const al = events.filter(e => e.severity === 'alarm');
+  $('alarmBody').innerHTML = al.map(e => `<tr class="alarm"><td class="sub">${esc(e.ts.slice(5))}</td><td><span class="tag alarm">${esc(e.name)}</span></td><td>${esc(e.detail)}</td><td>${photoCell(e.photo)}</td></tr>`).join('')
+    || '<tr><td colspan="4" class="sub">No alarms recorded.</td></tr>';
+  $('feed').innerHTML = events.slice(0, 6).map(e => `<div class="row">${photoCell(e.photo)}<div class="txt"><div><span class="tag ${esc(e.severity)}">${esc(e.name)}</span> ${esc(e.staff_name !== '-' ? e.staff_name : '')}</div>
+    <div class="sub">${esc(e.detail)}</div></div><div class="sub">${esc(e.ts.slice(11))}</div></div>`).join('') || '<div class="sub">No activity yet.</div>';
+}
+$('sevFilter').onchange = renderEvents;
+$('search').oninput = renderEvents;
+
+async function loadEvents() {
+  const fresh = await api('/api/events?limit=300');
+  if (lastEventId !== null) {
+    fresh.filter(e => e.id > lastEventId).reverse().forEach(e => {
+      if (e.severity === 'alarm') toast(`<b>⚠ ${esc(e.name)}</b><br>${esc(e.detail)}`, true);
+      else if (['REQUEST', 'APPROVED', 'ATTACK'].includes(e.name)) toast(`<b>${esc(e.name)}</b> ${esc(e.staff_name)}<br>${esc(e.detail)}`);
+    });
+  }
+  lastEventId = fresh.length ? fresh[0].id : 0;
+  events = fresh;
+  renderEvents();
+}
+
+// chart (plain canvas, works offline)
+let readings = [];
+async function loadReadings() { readings = await api('/api/readings?minutes=30'); drawChart(); }
+function drawChart() {
+  const c = $('chart'), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (!w) return;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+  const pts = readings.map(r => ({ t: new Date(r.ts.replace(' ', 'T')).getTime(), a: r.temp, b: r.lm75, l: r.lim }));
+  const vals = pts.flatMap(p => [p.a, p.b, p.l]).filter(v => v !== null && v !== undefined);
+  g.font = '12px system-ui'; g.fillStyle = '#8a9bb3';
+  if (pts.length < 2 || !vals.length) { g.fillText('Collecting data... (one point every 5 s)', 12, h / 2); return; }
+  let lo = Math.floor(Math.min(...vals) - 1), hi = Math.ceil(Math.max(...vals) + 1);
+  const L = 40, R = 10, T = 10, B = 24, t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1;
+  const X = t => L + (t - t0) / Math.max(1, t1 - t0) * (w - L - R), Y = v => T + (hi - v) / (hi - lo) * (h - T - B);
+  g.strokeStyle = '#24344d'; g.lineWidth = 1;
+  const step = Math.max(1, Math.round((hi - lo) / 5));
+  for (let v = lo; v <= hi; v += step) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.fillText(v + '°', 6, Y(v) + 4); }
+  [t0, (t0 + t1) / 2, t1].forEach((t, i) => { const s = new Date(t).toTimeString().slice(0, 5); g.fillText(s, Math.min(w - 40, Math.max(L, X(t) - 15)), h - 6); });
+  const line = (key, color, dash) => {
+    g.strokeStyle = color; g.lineWidth = 2; g.setLineDash(dash || []); g.beginPath(); let started = false;
+    pts.forEach(p => { if (p[key] === null || p[key] === undefined) { started = false; return; } const x = X(p.t), y = Y(p[key]); started ? g.lineTo(x, y) : g.moveTo(x, y); started = true; });
+    g.stroke(); g.setLineDash([]);
+  };
+  line('l', '#ef4444', [6, 5]); line('b', '#a78bfa'); line('a', '#2dd4bf');
+}
+window.addEventListener('resize', drawChart);
+
+async function loadRaw() {
+  const raw = await api('/api/raw');
+  const name = { N2S: 'cabinet → supervisor', S2N: 'supervisor → cabinet' };
+  $('rawBody').innerHTML = raw.map(r => `<tr><td class="sub">${esc(r.ts.slice(11))}</td><td>${esc(name[r.dir] || r.dir)}</td><td class="mono">${esc(r.hex)}</td></tr>`).join('')
+    || '<tr><td colspan="3" class="sub">No frames yet.</td></tr>';
+}
+
+// controls
+async function cmd(c, v) {
+  try { await post('/api/cmd', { cmd: c, value: v }); toast(`Sent <b>${esc(c)}</b> to the cabinet`); }
+  catch (e) { toast('Failed: ' + esc(e.message), true); }
+}
+$('btnLockdown').onclick = () => { if (confirm('Lock down the cabinet now?')) cmd('LOCKDOWN'); };
+$('btnClear').onclick = () => cmd('CLEAR');
+$('limit').oninput = () => $('limitShow').textContent = Number($('limit').value).toFixed(1) + ' °C';
+$('btnLimit').onclick = () => cmd('LIMIT', $('limit').value);
+document.querySelectorAll('[data-sim]').forEach(b => b.onclick = () => post('/api/sim', { act: b.dataset.sim }));
+async function replay(tamper) {
+  try {
+    const r = await post('/api/replay_test', { tamper });
+    $('replayOut').innerHTML = `Sent ${tamper ? 'corrupted' : 'recorded'} frame (recorded ${esc(r.recorded_at)}):<br>${esc(r.sent)}<br>Watch the cabinet LCD: it should say ATTACK BLOCKED.`;
+    setTimeout(loadRaw, 800);
+  } catch (e) { $('replayOut').textContent = e.message; }
+}
+$('btnReplay').onclick = () => replay(false);
+$('btnTamper').onclick = () => replay(true);
+
+// polling
+async function tick() {
+  try {
+    S = await api('/api/state');
+    renderState();
+    if (S.last_event_id !== lastEventId) await loadEvents();
+  } catch (e) { $('online').textContent = 'gateway offline'; $('online').className = 'pill bad'; }
+}
+tick(); loadEvents(); loadReadings();
+setInterval(tick, 1000);
+setInterval(loadReadings, 10000);
+setInterval(() => { if ($('security').classList.contains('on')) loadRaw(); }, 3000);
+</script>
+</body>
+</html>

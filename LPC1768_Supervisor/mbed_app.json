@@ -1,0 +1,10 @@
+{
+    "target_overrides": {
+        "*": {
+            "platform.stdio-baud-rate": 115200,
+            "platform.stdio-convert-newlines": false,
+            "drivers.uart-serial-rxbuf-size": 512,
+            "drivers.uart-serial-txbuf-size": 512
+        }
+    }
+}
