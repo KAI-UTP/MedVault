@@ -10,7 +10,31 @@ Chan Li Kai (22010900), William Wong Xiao Kang (22010943). RBB3023 Project.
 | `LPC1768_Supervisor/` | Copy of the supervisor program + ready `.bin` (real program: `C:\Users\TUF FA707RC-HX024W\Mbed Programs\MedVault_Supervisor`) |
 | `Pi_Gateway/` | Raspberry Pi gateway: web app, camera, Telegram, replay test |
 
-**Status:** all code builds and the web app was tested in simulation mode. Nothing has been run on the real boards yet.
+**Status (17 Nov 2026):** all code is written and reviewed; both firmwares build with 0 errors (NUC140 30.2 KB of 32 KB) and the gateway passes a full simulated run. Nothing has been run on the real boards yet.
+
+---
+
+## 0. Parts list
+
+**Already have**
+- Nu-LB-NUC140 learning board + USB cable
+- mbed LPC1768 + App Board + USB cable. The accelerometer, temperature sensor, LCD, joystick and pots are already on the App Board.
+- Raspberry Pi 3 + microSD card (16 GB or more, Raspberry Pi OS) + 5 V 2.5 A power supply
+
+**To buy (about RM40)**
+
+| # | Part | Qty | For | Approx. |
+|---|---|---|---|---|
+| 1 | NTC thermistor 10k, B3950 (5 mm bead or probe) | 1 (+1 spare) | cabinet temperature, ADC6 | RM1 |
+| 2 | LDR / photoresistor (GL5528) | 1 | door open / forced, ADC5 | RM0.50 |
+| 3 | 10 kΩ resistor | 2 | voltage dividers for 1 and 2 | RM0.20 |
+| 4 | SG90 micro servo | 1 | door lock, GPA15 | RM7 |
+| 5 | 100 µF capacitor (10 V or more) | 1 | across servo 5V/GND, stops resets | RM0.30 |
+| 6 | USB webcam (any UVC, 480p/720p) | 1 | event photos on the Pi | RM25 |
+| 7 | Jumper wires, male-female + male-male | 10 + 10 | all wiring | RM4 |
+| 8 | Mini breadboard (170 holes) | 1 | the two dividers | RM3 |
+| 9 | Small box with a lid (cardboard / plastic / acrylic) | 1 | the cabinet; servo arm = bolt | RM0–10 |
+| – | Logic-level shifter (only if the UART link misbehaves) | 0–1 | NUC140 to LPC1768 levels | RM3 |
 
 ---
 

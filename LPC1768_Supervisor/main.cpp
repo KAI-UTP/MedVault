@@ -249,8 +249,7 @@ void send_decision(bool yes)
 	xtea_encrypt(b);
 	send_frame('A', b, 8, true);
 
-	flags.clear(F_REQUEST | F_TILT);
-	flags.set(F_ARMED);
+	flags.clear(F_REQUEST | F_TILT);		// tamper re-arms when the cabinet reports IDLE again
 	pi_line("EV,%s,%u,%c", yes ? "SUP_APPROVE" : "SUP_REJECT", staff, drawer);
 	set_event(yes ? "approved" : "rejected");
 }
@@ -347,7 +346,7 @@ void sensor_thread()
 	i2c.write(ACC_ADDR, cfg, 2);
 
 	float bx = 0, by = 0, bz = 21;		// resting position (baseline)
-	bool base_ok = false;
+	bool base_ok = false, was_armed = false;
 	int over = 0, n = 0;
 	uint64_t quiet_until = now_ms() + 3000;	// no tamper check right after start
 	uint8_t step = 0;
@@ -381,7 +380,7 @@ void sensor_thread()
 		if (f & F_TILT)
 		{
 			// tilt code : hold a direction 0.2 s, then return to flat before the next one
-			quiet_until = now_ms() + 3000;
+			quiet_until = now_ms() + 5000;		// time to put the board down afterwards
 			base_ok = false;
 			if (dir == '-' && abs(x) < 5 && abs(y) < 5) { need_flat = false; held = 0; held_n = 0; continue; }
 			if (need_flat || dir == '-') continue;
@@ -407,7 +406,10 @@ void sensor_thread()
 		led3 = 0;
 
 		// tamper : big change from the resting position while armed
-		if (!(f & F_ARMED) || now_ms() < quiet_until) { base_ok = false; over = 0; continue; }
+		bool armed = f & F_ARMED;
+		if (armed && !was_armed) quiet_until = now_ms() + 3000;	// just re-armed : let the board settle
+		was_armed = armed;
+		if (!armed || now_ms() < quiet_until) { base_ok = false; over = 0; continue; }
 		if (!base_ok) { bx = x; by = y; bz = z; base_ok = true; continue; }
 		float dev = fabsf(x - bx) + fabsf(y - by) + fabsf(z - bz);
 		float limit = 4 + pot2.read() * 26;		// 4 ~ 30 counts
@@ -433,7 +435,7 @@ void ui_thread()
 
 	while (true)
 	{
-		redraw.try_acquire_for(200ms);		// 5 Hz, or at once when woken
+		redraw.try_acquire_for(100ms);		// 10 Hz (joystick + LCD), or at once when woken
 		led1 = !led1;
 
 		// joystick (new press only)

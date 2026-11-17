@@ -209,20 +209,38 @@ class Telegram:
 
 # ---------------------------------------------------------------- serial link
 class SerialLink:
+	"""USB serial to the LPC1768. Reconnects by itself if the cable is pulled or the board is reflashed."""
+
 	def __init__(self, port, on_line):
 		import serial
-		import serial.tools.list_ports
-		if port == "auto":
-			found = [p.device for p in serial.tools.list_ports.comports() if p.vid == 0x0D28]
-			if not found:
-				raise SystemExit("No mbed board found. Plug in the LPC1768 or set serial_port in config.json (or use --sim).")
-			port = found[0]
-		self.ser = serial.Serial(port, 115200, timeout=0.2)
+		self.serial = serial
+		self.want_port = port
+		self.ser = None
 		self.wlock = threading.Lock()
 		self.on_line = on_line
-		print(f"[serial] connected to {port}")
+		if not self._open():
+			raise SystemExit("No mbed board found. Plug in the LPC1768 or set serial_port in config.json (or use --sim).")
 		threading.Thread(target=self._run, daemon=True).start()
+
+	def _find(self):
+		if self.want_port != "auto":
+			return self.want_port
+		import serial.tools.list_ports
+		found = [p.device for p in serial.tools.list_ports.comports() if p.vid == 0x0D28]
+		return found[0] if found else None
+
+	def _open(self):
+		port = self._find()
+		if not port:
+			return False
+		try:
+			self.ser = self.serial.Serial(port, 115200, timeout=0.2)
+		except Exception as e:
+			print(f"[serial] cannot open {port}: {e}")
+			return False
+		print(f"[serial] connected to {port}")
 		self.write("HELLO")
+		return True
 
 	def _run(self):
 		buf = b""
@@ -230,18 +248,30 @@ class SerialLink:
 			try:
 				buf += self.ser.read(256)
 			except Exception as e:
-				print("[serial] read error:", e)
-				time.sleep(1)
+				print("[serial] link lost:", e, "- retrying")
+				try:
+					self.ser.close()
+				except Exception:
+					pass
+				buf = b""
+				while not self._open():
+					time.sleep(2)
 				continue
 			while b"\n" in buf:
 				line, buf = buf.split(b"\n", 1)
 				line = line.decode("ascii", "replace").strip()
 				if line:
-					self.on_line(line)
+					try:
+						self.on_line(line)
+					except Exception as e:	# one bad line must not stop the gateway
+						print("[gateway] error on line", line, ":", e)
 
 	def write(self, line):
-		with self.wlock:
-			self.ser.write((line + "\n").encode())
+		try:
+			with self.wlock:
+				self.ser.write((line + "\n").encode())
+		except Exception as e:
+			raise ValueError(f"supervisor unit not connected ({e})")
 
 
 class SimLink:

@@ -116,8 +116,10 @@ volatile uint8_t  sw_pressed = 0;
 // UART receive (filled by the ISR)
 volatile uint8_t rx_buf[16];
 volatile uint8_t rx_type, rx_len, rx_pos, rx_state = 0;
-volatile uint8_t frame[16];			// last good frame : [0] type [1] len [2..] payload
-volatile uint8_t frame_ready = 0;
+#define NFRAMES 4				// small queue : a ping + an approval can arrive together
+volatile uint8_t frames[NFRAMES][16];		// good frames : [0] type [1] len [2..] payload
+volatile uint8_t fr_head = 0, fr_tail = 0;	// ISR writes head, main reads tail
+uint8_t frame[16];				// the frame main is handling now
 
 uint8_t  state = ST_IDLE;
 uint8_t  alarms = 0;
@@ -327,12 +329,13 @@ void UART_INT_HANDLE(uint32_t u32IntStatus)
 				uint8_t crc = crc8(&rx_type, 1, 0);
 				crc = crc8(&rx_len, 1, crc);
 				crc = crc8(rx_buf, rx_len, crc);
-				if (crc == c[0] && frame_ready == 0)
+				uint8_t next = (fr_head + 1) % NFRAMES;
+				if (crc == c[0] && next != fr_tail)	// full queue : drop
 				{
-					frame[0] = rx_type;
-					frame[1] = rx_len;
-					for (i = 0; i < rx_len; i++) frame[2 + i] = rx_buf[i];
-					frame_ready = 1;
+					frames[fr_head][0] = rx_type;
+					frames[fr_head][1] = rx_len;
+					for (i = 0; i < rx_len; i++) frames[fr_head][2 + i] = rx_buf[i];
+					fr_head = next;
 				}
 			}
 			break;
@@ -710,6 +713,14 @@ void handle_frame(void)
 		uint32_t n = ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | b[3];
 
 		if (b[7] != MAGIC)				{ attack(AT_BAD_KEY); return; }
+		// real reply to our last request, but it was cancelled / timed out first :
+		// fresh counter, so not a replay. Ignore it (a replay of it later has an old counter)
+		if (n == nonce && !nonce_valid && ctr > last_ctr)
+		{
+			last_ctr = ctr;
+			show_msg("APPROVAL CAME", "too late: ignored", 2500);
+			return;
+		}
 		if (state != ST_WAIT || !nonce_valid || n != nonce)	{ attack(AT_REPLAY); return; }
 		if (ctr <= last_ctr)				{ attack(AT_OLD_COUNTER); return; }
 		last_ctr = ctr;
@@ -1133,10 +1144,11 @@ int32_t main(void)
 			sw_pressed = 0;
 			on_switch();
 		}
-		if (frame_ready)
+		while (fr_tail != fr_head)		// every frame that came in
 		{
+			for (i = 0; i < 16; i++) frame[i] = frames[fr_tail][i];
+			fr_tail = (fr_tail + 1) % NFRAMES;
 			handle_frame();
-			frame_ready = 0;
 		}
 		checks();
 
