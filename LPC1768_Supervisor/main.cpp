@@ -40,7 +40,9 @@
 #include <math.h>
 #include "lcd_c12832.h"
 
-#define ALLOW_INJECT 1		// Pi may push raw bytes to the cabinet (security test only)
+#define ALLOW_INJECT 1		// gateway may push raw bytes to the cabinet (security test only)
+#define GW_LINK_USB  1		// 1 = gateway on the App Board mini-USB (LPC1768's own USB, shows as a
+				//     normal COM port on Windows); 0 = mbed interface serial (USBTX/USBRX)
 
 // ---------------- shared protocol (same as NUC140) ----------------
 static const uint32_t KEY[4] = { 0x4D656456, 0x61756C74, 0x56614B58, 0x26202026 };
@@ -78,7 +80,11 @@ static const char TILT_CODE[] = "LLF";
 
 // ---------------- hardware ----------------
 BufferedSerial nuc(p9, p10, 9600);
+#if GW_LINK_USB
+#include "USBSerial.h"
+#else
 BufferedSerial pc(USBTX, USBRX, 115200);
+#endif
 I2C i2c(p28, p27);
 LCD_C12832 lcd;
 DigitalIn joy_down(p12, PullDown), joy_left(p13, PullDown), joy_centre(p14, PullDown),
@@ -117,7 +123,7 @@ Semaphore      redraw(0, 1);
 Thread t_nuc(osPriorityAboveNormal, 2048);
 Thread t_sensor(osPriorityNormal, 2048);
 Thread t_ui(osPriorityNormal, 3072);
-Thread t_pi(osPriorityBelowNormal, 3072);
+Thread t_pi(osPriorityBelowNormal, 4096);	// holds the USBSerial object
 
 // ---------------- shared status (guarded by st_mtx) ----------------
 struct Shared {
@@ -565,12 +571,36 @@ void pi_command(char *s)
 	else if (strcmp(s, "HELLO") == 0) pi_line("LOG,MedVault supervisor ready");
 }
 
+// one received character from the gateway : build lines, run them
+void gw_char(char c, char *line, int &n)
+{
+	if (c == '\n' || c == '\r')
+	{
+		line[n] = 0;
+		if (n) pi_command(line);
+		n = 0;
+	}
+	else if (n < 99) line[n++] = c;
+}
+
 void pi_thread()
 {
 	char line[100];
 	int n = 0;
+#if GW_LINK_USB
+	USBSerial usb(false);			// App Board mini-USB = the LPC1768's own USB
+	while (true)
+	{
+		Line *l = pi_out.try_get_for(20ms);
+		if (l)
+		{
+			if (usb.connected()) usb.send((uint8_t *)l->s, strlen(l->s));	// nobody listening : drop
+			pi_out.free(l);
+		}
+		while (usb.available()) gw_char((char)usb.getc(), line, n);
+	}
+#else
 	pc.set_blocking(false);
-
 	while (true)
 	{
 		Line *l = pi_out.try_get_for(20ms);
@@ -580,17 +610,9 @@ void pi_thread()
 			pi_out.free(l);
 		}
 		char c;
-		while (pc.read(&c, 1) == 1)
-		{
-			if (c == '\n' || c == '\r')
-			{
-				line[n] = 0;
-				if (n) pi_command(line);
-				n = 0;
-			}
-			else if (n < (int)sizeof(line) - 1) line[n++] = c;
-		}
+		while (pc.read(&c, 1) == 1) gw_char(c, line, n);
 	}
+#endif
 }
 
 // ---------------- main thread : security / logic ----------------

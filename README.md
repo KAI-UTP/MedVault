@@ -28,7 +28,7 @@ Chan Li Kai (22010900), William Wong Xiao Kang (22010943). RBB3023 Project.
 | 1 | NTC thermistor 10k, B3950 (5 mm bead or probe) | 1 (+1 spare) | cabinet temperature, ADC6 | RM1 |
 | 2 | LDR / photoresistor (GL5528) | 1 | door open / forced, ADC5 | RM0.50 |
 | 3 | 10 kΩ resistor | 2 | voltage dividers for 1 and 2 | RM0.20 |
-| 4 | SG90 micro servo | 1 | door lock, GPA15 | RM7 |
+| 4 | SG90 micro servo | 1 | door lock, GPB8 | RM7 |
 | 5 | 100 µF capacitor (10 V or more) | 1 | across servo 5V/GND, stops resets | RM0.30 |
 | 6 | USB webcam (any UVC, 480p/720p) | 1 | event photos on the Pi | RM25 |
 | 7 | Jumper wires, male-female + male-male | 10 + 10 | all wiring | RM4 |
@@ -40,21 +40,39 @@ Chan Li Kai (22010900), William Wong Xiao Kang (22010943). RBB3023 Project.
 
 ## 1. Wiring
 
+NUC140 headers: JP4 = GPIOA, JP5 = GPIOB (pin *n* = GPx(*n*−1), pins 17/18 = GND).
+Power pins for outside parts: **Vcc33** (3.3 V), **Vcc5** (5 V), **GND**, next to the power switch.
+
 ```
-NUC140 GPB1 (TX0) ─────────► LPC1768 p10 (RX)
-NUC140 GPB0 (RX0) ◄───────── LPC1768 p9  (TX)
-NUC140 GND ─────────────────  LPC1768 GND          (both boards run at 3.3 V logic)
+Board link (UART1, 9600, jumper wires, no breadboard)
+  NUC140 GPB5 TX1 (JP5 pin 6) ────────► LPC1768 p10 (RX)
+  NUC140 GPB4 RX1 (JP5 pin 5) ◄──────── LPC1768 p9  (TX)
+  NUC140 GND      (JP5 pin 17) ───────  LPC1768 GND
+
+Breadboard
+  Thermistor:  Vcc33 ── 10k ──┬── NTC ── GND        ● = NUC140 GPA6 (ADC6, JP4 pin 7)
+  LDR:         Vcc33 ── 10k ──┬── LDR ── GND        ● = NUC140 GPA5 (ADC5, JP4 pin 6)
+  Servo SG90:  red = Vcc5, brown = GND, orange = NUC140 GPB8 (JP5 pin 9)
+               100 µF across red/brown (long leg = +, to Vcc5)
 
 Raspberry Pi USB ──────────── LPC1768 USB (power + serial 115200)
-
-Thermistor (NTC 10k):  3.3V ── 10k ──┬── GPA6 (ADC6)         LDR:  3.3V ── 10k ──┬── GPA5 (ADC5)
-                                     └── NTC ── GND                              └── LDR ── GND
-Servo SG90:  brown = GND, red = 5V (+100 µF across 5V/GND), orange = GPA15
 ```
 
-- Put the LDR **inside the box** (dark when the lid is closed). The NUC140 measures the dark level at power-on, so **close the lid before powering on**.
+**Why these pins:** GPB0/GPB1 (UART0) are tied to the board's RS232 chip, and GPA15 goes to the audio codec. UART1 on GPB4/GPB5 is the pair already proven in Assessment 2 (Task 2A).
+
+**Build order**
+1. **Power off** both boards (unplug USB) before wiring.
+2. **Breadboard rails:** wire Vcc33 to the + rail and GND to the − rail. Don't use Vcc5 for the rails: the ADC only reads up to 3.3 V.
+3. **Thermistor:** 10k from the + rail to an empty row; thermistor from that row to the − rail; a jumper from that row to GPA6 (JP4 pin 7).
+4. **LDR:** the same in another row, with the jumper going to GPA5 (JP4 pin 6). Use long wires so the LDR can sit **inside the box**.
+5. **Servo:** a row for 5 V (jumper from Vcc5) and the GND rail. Put the 100 µF across them, long leg on 5 V. Servo red → 5 V row, brown → GND, orange → GPB8 (JP5 pin 9). The servo plug is female, so use male-male jumpers into the breadboard.
+6. **Board link:** three jumpers straight between the boards: GPB5 → p10, GPB4 ← p9, GND → GND. Wire it the same way as Assignment 1.
+7. **Check before power-on:** nothing goes from Vcc5 to an ADC pin, and no 5 V reaches the + rail.
+8. Plug in USB with the **box lid closed**: the NUC140 learns the LDR's dark level at power-on.
+
 - Not wired yet? Set `USE_LDR 0` / `USE_THERM 0` at the top of `NUC140_Cabinet/main.c`, otherwise floating pins cause false alarms.
-- **Check GPA15 is free on your board** before wiring the servo. Tune `SERVO_LOCK_US` / `SERVO_OPEN_US` on the real lock.
+- Tune `SERVO_LOCK_US` / `SERVO_OPEN_US` on the real lock.
+- Check each sensor on the diagnostics screen (staff ID **1111**): `THERM` should be about 2000 at room temperature and drop when you pinch the thermistor. `LDR` should be high in the dark and drop in light.
 
 ## 2. Logins (keypad has digits 1–9, no 0)
 

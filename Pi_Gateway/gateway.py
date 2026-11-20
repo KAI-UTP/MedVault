@@ -226,8 +226,14 @@ class SerialLink:
 		if self.want_port != "auto":
 			return self.want_port
 		import serial.tools.list_ports
-		found = [p.device for p in serial.tools.list_ports.comports() if p.vid == 0x0D28]
-		return found[0] if found else None
+		ports = serial.tools.list_ports.comports()
+		# 1st choice : the LPC1768's own USB on the App Board mini-USB (Mbed USBSerial 1F00:2012)
+		# 2nd choice : the mbed interface chip's serial port (0D28)
+		for vid, pid in ((0x1F00, 0x2012), (0x0D28, None)):
+			for p in ports:
+				if p.vid == vid and (pid is None or p.pid == pid):
+					return p.device
+		return None
 
 	def _open(self):
 		port = self._find()

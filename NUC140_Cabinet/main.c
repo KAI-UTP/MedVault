@@ -16,14 +16,16 @@
 //                           while scanning (like Lab 6). Keys 7~9 are ignored
 //                           while the box is bright (door open), that is fine.
 //   VR1            ADC7     GPA7, temperature alarm limit 2.0 ~ 40.0 C
-//   UART0 RX       GPB0     from LPC1768 p9 (TX)
+//   UART1 RX       GPB4     JP5 pin 5, from LPC1768 p9 (TX)
 // Outputs
 //   LCD 128x64     SPI3     menus / status / alarms (only changed lines are redrawn)
 //   7-segment      GPC4~7 digit, GPE0~7 segment : temperature or countdown
-//   Servo SG90     GPA15    lock (pulse made by Timer0 + Timer1 one-shot)
+//   Servo SG90     GPB8     JP5 pin 9, lock (pulse made by Timer0 + Timer1 one-shot)
 //   RGB LED        GPA12 B, GPA13 G, GPA14 R (low = on)
 //   LEDs           GPC12 LOCKED, GPC13 OPEN, GPC14 ALARM, GPC15 LINK (low = on)
-//   UART0 TX       GPB1     to LPC1768 p10 (RX), 9600 8N1, GND to GND
+//   UART1 TX       GPB5     JP5 pin 6, to LPC1768 p10 (RX), 9600 8N1, GND (JP5 pin 17/18) to GND
+//                           (not UART0 : GPB0/1 are tied to the board's RS232 chip,
+//                            not GPA15 : it goes to the audio codec)
 //
 // Timers : Timer0 1 ms periodic (time base, 7-seg scan, servo frame 20 ms)
 //          Timer1 one-shot (servo pulse width 1.0 ~ 2.0 ms)
@@ -50,15 +52,17 @@
 #define USE_THERM	1	// 0 if the thermistor is not wired yet (temperature shows ----)
 #define SERVO_LOCK_US	1000	// servo pulse for LOCKED  (tune on the real lock)
 #define SERVO_OPEN_US	2000	// servo pulse for OPEN
-#define SERVO_PORT	E_GPA
-#define SERVO_PIN	15
+#define SERVO_PORT	E_GPB
+#define SERVO_PIN	8
 
 #define WAIT_S		25	// time for the supervisor to approve
 #define OPEN_S		30	// door may be opened within this time, then relock
 #define LOCKOUT_S	60	// after 3 wrong PINs
 #define COLD_DELAY_MS	5000	// temperature must stay over the limit this long
 
-#define PIN_OUT(port, pin)	_DRVGPIO_DOUT(port, pin)
+// brackets matter : the BSP macro does 0x4*PinNum without them, so pin "4 + i"
+// became 0x4*4 + i, a misaligned address = hard fault on the Cortex-M0
+#define PIN_OUT(port, pin)	_DRVGPIO_DOUT((port), (pin))
 
 // ---------------- protocol ----------------
 #define SOF		0xA5
@@ -243,7 +247,17 @@ void TMR0_IRQHandler(void)
 void TMR1_IRQHandler(void)
 {
 	PIN_OUT(SERVO_PORT, SERVO_PIN) = 0;
+	TIMER1->TCSR.CEN = 0;
 	TIMER1->TISR.TIF = 1;
+}
+
+void lcd_line(uint8_t n, const char *text);
+
+// a crash (bad address, bad instruction) lands here : say so on the LCD
+void HardFault_Handler(void)
+{
+	print_Line(3, "!! HARD FAULT !!");
+	while (1);
 }
 
 void init_timers(void)
@@ -261,8 +275,10 @@ void init_timers(void)
 
 	SYSCLK->CLKSEL1.TMR1_S = 0;
 	SYSCLK->APBCLK.TMR1_EN = 1;
+	TIMER1->TCSR.CEN = 0;
 	TIMER1->TCSR.MODE = 0;			// one-shot
 	TIMER1->TCSR.PRESCALE = 11;		// 1 us per count
+	TIMER1->TCMPR = SERVO_LOCK_US;		// never leave TCMPR at 0 : the flag can fire nonstop
 	TIMER1->TCSR.IE = 1;
 	TIMER1->TISR.TIF = 1;
 	NVIC_EnableIRQ(TMR1_IRQn);
@@ -305,15 +321,15 @@ void feed_wdt(void)
 	LOCKREG();
 }
 
-// ---------------- UART0 to the supervisor unit ----------------
+// ---------------- UART1 to the supervisor unit ----------------
 
 void UART_INT_HANDLE(uint32_t u32IntStatus)
 {
 	uint8_t c[1], i;
 
-	while (UART0->ISR.RDA_IF == 1)
+	while (UART1->ISR.RDA_IF == 1)
 	{
-		DrvUART_Read(UART_PORT0, c, 1);
+		DrvUART_Read(UART_PORT1, c, 1);
 		switch (rx_state)
 		{
 		case 0:	if (c[0] == SOF) rx_state = 1; break;
@@ -347,14 +363,14 @@ void init_uart(void)
 {
 	STR_UART_T p;
 
-	DrvGPIO_InitFunction(E_FUNC_UART0);	// GPB0 RX0, GPB1 TX0
+	DrvGPIO_InitFunction(E_FUNC_UART1);	// GPB4 RX1, GPB5 TX1
 	p.u32BaudRate       = 9600;
 	p.u8cDataBits       = DRVUART_DATABITS_8;
 	p.u8cStopBits       = DRVUART_STOPBITS_1;
 	p.u8cParity         = DRVUART_PARITY_NONE;
 	p.u8cRxTriggerLevel = DRVUART_FIFO_1BYTES;
-	DrvUART_Open(UART_PORT0, &p);
-	DrvUART_EnableInt(UART_PORT0, DRVUART_RDAINT, UART_INT_HANDLE);
+	DrvUART_Open(UART_PORT1, &p);
+	DrvUART_EnableInt(UART_PORT1, DRVUART_RDAINT, UART_INT_HANDLE);
 }
 
 void send_frame(uint8_t type, const uint8_t *data, uint8_t len)
@@ -367,7 +383,7 @@ void send_frame(uint8_t type, const uint8_t *data, uint8_t len)
 	buf[2] = len;
 	for (i = 0; i < len; i++) buf[3 + i] = data[i];
 	buf[3 + len] = crc8(buf + 1, len + 2, 0);
-	DrvUART_Write(UART_PORT0, buf, len + 4);
+	DrvUART_Write(UART_PORT1, buf, len + 4);
 }
 
 void send_status(void)
@@ -1108,21 +1124,37 @@ int32_t main(void)
 	lcd_line(2, (SYS->RSTSRC.RSTS_WDT) ? "(watchdog reset)" : "starting...");
 	SYS->RSTSRC.RSTS_WDT = 1;
 
+	// start-up steps on line 3 : if the board freezes, the last number shows where
+	lcd_line(3, "boot 1 ADC");
 	init_adc();
+	lcd_line(3, "boot 2 timers");
 	init_timers();
+	lcd_line(3, "boot 3 UART1");
 	init_uart();
 
 	// door must be closed at power on : measure the dark level of the LDR
+	lcd_line(3, "boot 4 LDR read");
 	for (i = 0; i < 16; i++) { dark += adc_read(5); DrvSYS_Delay(5000); }
 	dark /= 16;
 	ldr_thr = dark * 55 / 100;
 	if (ldr_thr < 300) ldr_thr = 300;
+	lcd_line(3, "boot 5 sensors");
 	adc_t = adc_read(6); adc_l = adc_read(5); adc_v = adc_read(7);
 	rng ^= dark << 7;
 
+	lcd_line(3, "boot 6 tick");
+	{
+		uint32_t t0 = ms_tick;
+		uint32_t n = 0;
+		while (ms_tick == t0 && ++n < 2000000);	// Timer0 must be counting
+		if (ms_tick == t0) lcd_line(3, "boot 6 NO TICK!");
+	}
 	servo_set(SERVO_LOCK_US);
+	lcd_line(3, "boot 7 watchdog");
 	init_wdt();
+	lcd_line(3, "boot 8 send");
 	send_event(EV_BOOT, 0);
+	lcd_line(3, "boot 9 running");
 
 	while (1)
 	{

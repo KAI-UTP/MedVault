@@ -21,3 +21,5 @@ Proposal/*_backup_*.docx
 __pycache__/
 *.pyc
 .claude/
+
+NUC140_Cabinet/Keil/flash.log

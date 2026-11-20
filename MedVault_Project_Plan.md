@@ -83,10 +83,10 @@ Commercial systems cost thousands of ringgit. MedVault does the same job with tw
 | **VR1** | ADC7 (GPA7) | set the temperature alarm limit |
 | **Thermistor** (NTC 10k + 10k resistor divider) | ADC6 (GPA6) | fridge temperature |
 | **LDR** (+ 10k resistor divider) | ADC5 (GPA5) | light inside the box = door open / forced. Shares the pin with a keypad column, switched like Lab 6 |
-| **Servo SG90** (lock) | GPA15 (PWM3), or any free GPIO driven by Timer1 | 50 Hz, 1 ms = locked, 2 ms = open. Power from the board 5V pin |
-| **UART0** to LPC1768 | GPB1 TX0, GPB0 RX0 | 9600 8N1, GND to GND |
+| **Servo SG90** (lock) | GPB8 (JP5 pin 9), pulse made by Timer0 + Timer1 | 50 Hz, 1 ms = locked, 2 ms = open. Power from the board 5V pin |
+| **UART1** to LPC1768 | GPB5 TX1 (JP5 pin 6), GPB4 RX1 (JP5 pin 5) | 9600 8N1, GND to GND. Not UART0: GPB0/1 are tied to the RS232 chip |
 
-> Check before wiring: GPA15 is free on our board, and the LPC's 3.3 V TX is read correctly by the NUC140. If not reliable, add a small logic-level shifter (about RM3).
+> GPA15 is not used: it goes to the audio codec. Check the LPC's 3.3 V TX is read correctly by the NUC140. If not reliable, add a small logic-level shifter (about RM3).
 
 ### Timers
 | Timer | Use |
